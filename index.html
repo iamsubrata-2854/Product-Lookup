@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+  <title>Scan Desk — Barcode Discount Lookup</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@700;800;900&family=Space+Mono:wght@700&display=swap" rel="stylesheet">
+
+  <!-- External Styles -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="wrap">
+
+  <!-- Header -->
+  <div class="header-box">
+    <button class="sound-toggle-btn" id="soundToggleBtn" type="button">🔊 Audio ON</button>
+    <div class="eyebrow">Barcode Lookup</div>
+    <h1 class="headline">IS IT ON SALE?!</h1>
+    <p class="sub">Scan any barcode with your camera to check for discounts 🤑 or full price 😅 instant & private!</p>
+  </div>
+
+  <!-- Sheet Upload Card -->
+  <div class="card">
+    <div class="card-label">
+      <span>🗂️ Discount Sheet</span>
+    </div>
+    <div class="sheet-row">
+      <div class="sheet-status">
+        <div class="title" id="sheetTitle">No sheet loaded</div>
+        <div class="meta" id="sheetMeta">Upload .xlsx, .csv or .json</div>
+      </div>
+      <button class="btn btn-amber" id="uploadBtn" type="button">Upload</button>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv,.json">
+    </div>
+    <div class="row-actions">
+      <button class="link-btn" id="sampleBtn" type="button">🎲 Load Sample Deals</button>
+      <button class="link-btn" id="clearBtn" type="button" style="display:none;">🗑️ Clear sheet</button>
+    </div>
+  </div>
+
+  <!-- Camera Scanner Card -->
+  <div class="card">
+    <div class="card-label">
+      <span>📷 Camera Scanner</span>
+      <span class="status-line">
+        <span class="dot" id="liveDot"></span>
+        <span id="statusText">Idle</span>
+      </span>
+    </div>
+    <div class="scanner-frame">
+      <div id="reader"></div>
+      <div class="scanner-idle" id="scannerIdle">
+        <div class="emoji">🕹️</div>
+        <p>Camera is paused.<br>Tap <b style="color:var(--yellow)">Start Scanning</b> below!</p>
+      </div>
+      <div class="reticle" id="reticle" style="display:none;">
+        <div class="reticle-box">
+          <div class="corner tl"></div><div class="corner tr"></div>
+          <div class="corner bl"></div><div class="corner br"></div>
+          <div class="scanline"></div>
+        </div>
+      </div>
+    </div>
+    <div class="scan-controls">
+      <button class="btn btn-pink" id="scanBtn" type="button" style="width:100%;">📸 Start Scanning!</button>
+    </div>
+  </div>
+
+  <!-- Result Display Stamp -->
+  <div class="stamp-card" id="stampCard">
+    <div class="stamp-empty" id="stampEmpty">
+      Scan an item! You'll get a big <b>🎉 SCORE!</b> or a <b>😅 NOPE</b> right here.
+    </div>
+    <div class="stamp-result" id="stampResult">
+      <div class="stamp-mark sale" id="stampMark">🎉 50% OFF</div>
+      <div class="stamp-sub">
+        <span class="code" id="stampCode">0000000000000</span>
+        <span class="prod" id="stampProd">Item Description</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manual Entry Card -->
+  <div class="card">
+    <div class="card-label">⌨️ Manual Entry</div>
+    <div class="manual-row">
+      <input type="text" id="manualInput" inputmode="text" placeholder="Type barcode (letters & numbers)..." autocomplete="off" spellcheck="false">
+      <button class="btn btn-purple" id="manualBtn" type="button">Check</button>
+    </div>
+  </div>
+
+  <!-- Scan History Card -->
+  <div class="card">
+    <div class="card-label">
+      <span>🧾 Scan Party</span>
+      <button class="link-btn" id="historyClear" type="button">Clear</button>
+    </div>
+    <div class="receipt" id="receipt">
+      <div class="receipt-empty" id="receiptEmpty">Nothing scanned yet — go find a bargain!</div>
+    </div>
+  </div>
+
+  <footer>
+    🔒 100% Private Browser App.<br>Your sheets and camera data never leave your device.
+  </footer>
+
+</div>
+
+<!-- Third-Party Libraries (Loaded before app logic) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+<!-- Application Script -->
+<script src="js/app.js"></script>
+</body>
+</html>
