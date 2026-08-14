@@ -255,6 +255,7 @@ async function toggleScanner() {
   }
 }
 
+// Fast High-Performance Scanner Config
 async function startScanner() {
   if (state.isScanning) return;
 
@@ -264,9 +265,18 @@ async function startScanner() {
     }
 
     const config = {
-      fps: 12,
-      qrbox: { width: 260, height: 180 },
-      aspectRatio: 1.333333
+      fps: 30, // Boosted to 30 FPS for fast scanning
+      qrbox: { width: 280, height: 160 },
+      aspectRatio: 1.333333,
+      // Target specific 1D retail barcode formats to reduce processor load
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39
+      ]
     };
 
     await state.html5Qrcode.start(
@@ -331,6 +341,125 @@ function onScanFailure(error) {
 }
 
 // Manual Entry Handler
+function handleManualSubmit() {
+  const input = document.getElementById('manualInput');
+  const code = input.value.trim();
+  if (!code) return;
+
+  lookupBarcode(code);
+  input.value = '';
+}
+
+// Core Lookup Engine
+function lookupBarcode(rawCode) {
+  const now = Date.now();
+  const norm = normalizeCode(rawCode);
+
+  // Reduced cooldown debounce from 2200ms to 800ms for faster multi-item scans
+  if (state.lastScannedCode === norm && (now - state.lastScanTime) < 800) {
+    return;
+  }
+
+  state.lastScannedCode = norm;
+  state.lastScanTime = now;
+
+  const hit = state.discountDb.get(norm);
+
+  if (hit) {
+    // Discount Found
+    renderStampResult(true, hit.discount, rawCode, hit.prod);
+    AudioEngine.playSale();
+    triggerConfetti();
+    addHistoryItem(rawCode, hit.prod, hit.discount, true);
+  } else {
+    // Not on discount
+    renderStampResult(false, 'NO DISCOUNT', rawCode, 'Regular Price Item');
+    AudioEngine.playNoSale();
+    addHistoryItem(rawCode, 'Scanned Item', 'Regular Price', false);
+  }
+}
+
+// Display Stamp Card Result
+function renderStampResult(isSale, markText, code, description) {
+  const stampEmpty = document.getElementById('stampEmpty');
+  const stampResult = document.getElementById('stampResult');
+  const stampMark = document.getElementById('stampMark');
+  const stampCode = document.getElementById('stampCode');
+  const stampProd = document.getElementById('stampProd');
+
+  stampEmpty.style.display = 'none';
+  stampResult.style.display = 'flex';
+
+  stampMark.textContent = isSale ? `🎉 ${markText}` : `😅 ${markText}`;
+  stampMark.className = `stamp-mark ${isSale ? 'sale' : 'nosale'}`;
+
+  stampCode.textContent = code;
+  stampProd.textContent = description;
+
+  // Re-trigger CSS entrance animation
+  stampResult.style.animation = 'none';
+  void stampResult.offsetWidth; // Trigger reflow
+  stampResult.style.animation = 'popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+}
+
+// Confetti Particle Effect
+function triggerConfetti() {
+  if (typeof confetti === 'function') {
+    confetti({
+      particleCount: 50,
+      spread: 60,
+      origin: { y: 0.65 }
+    });
+  }
+}
+
+// Scan Party Receipt History Logic
+function addHistoryItem(code, title, tag, isSale) {
+  const item = { code, title, tag, isSale, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) };
+  state.history.unshift(item);
+  renderHistoryUI();
+}
+
+function clearHistory() {
+  state.history = [];
+  renderHistoryUI();
+}
+
+function renderHistoryUI() {
+  const receipt = document.getElementById('receipt');
+  const receiptEmpty = document.getElementById('receiptEmpty');
+
+  if (state.history.length === 0) {
+    receiptEmpty.style.display = 'block';
+    receipt.innerHTML = '';
+    receipt.appendChild(receiptEmpty);
+    return;
+  }
+
+  receiptEmpty.style.display = 'none';
+  receipt.innerHTML = '';
+
+  state.history.forEach((item) => {
+    const el = document.createElement('div');
+    el.className = 'receipt-item';
+    el.innerHTML = `
+      <div class="info">
+        <span class="code">${escapeHtml(item.code)} • ${item.time}</span>
+        <span class="title">${escapeHtml(item.title)}</span>
+      </div>
+      <span class="receipt-tag ${item.isSale ? 'sale' : 'nosale'}">${escapeHtml(item.tag)}</span>
+    `;
+    receipt.appendChild(el);
+  });
+}
+
+// Helper: Escape HTML to avoid XSS
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+nual Entry Handler
 function handleManualSubmit() {
   const input = document.getElementById('manualInput');
   const code = input.value.trim();
