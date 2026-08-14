@@ -1,328 +1,294 @@
-/**
- * Scan Desk — Barcode Discount Lookup App
- * Single page application logic for local sheet processing, camera scanning,
- * manual lookup, sound generation, and local scan history.
- */
+// Global State
+let html5QrCode = null;
+let isScanning = false;
+let currentFacingMode = "environment"; // "environment" (back) or "user" (front)
+let torchOn = false;
+let soundEnabled = true;
+let discountData = {}; // Stores barcode -> product deal object
 
-// Application State
-const state = {
-  discountDb: new Map(), // Map<normalizedCode, { originalCode, prod, discount }>
-  isScanning: false,
-  html5Qrcode: null,
-  audioEnabled: true,
-  lastScannedCode: null,
-  lastScanTime: 0,
-  history: []
-};
+// Audio context for sound effects
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-// Built-in Sample Dataset for Quick Testing
-const SAMPLE_DEALS = [
-  { Barcode: "012345678905", Product: "Wireless Headphones", Discount: "40% OFF" },
-  { Barcode: "098765432109", Product: "Organic Coffee Beans", Discount: "BUY 1 GET 1" },
-  { Barcode: "12345678", Product: "Energy Drink 4-Pack", Discount: "25% OFF" },
-  { Barcode: "88888888", Product: "Gourmet Chocolate Bar", Discount: "$2.00 OFF" },
-  { Barcode: "SAMPLE123", Product: "Bluetooth Speaker", Discount: "50% OFF" },
-  { Barcode: "76543210", Product: "Stainless Water Bottle", Discount: "30% OFF" }
-];
-
-// Web Audio API Sound Synthesizer (No external audio assets needed)
-const AudioEngine = {
-  ctx: null,
-
-  init() {
-    if (!this.ctx) {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx) this.ctx = new AudioCtx();
-    }
-    if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume();
-    }
-  },
-
-  playSale() {
-    if (!state.audioEnabled) return;
-    this.init();
-    if (!this.ctx) return;
-
-    const now = this.ctx.currentTime;
-    const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6 arpeggio
-
-    notes.forEach((freq, idx) => {
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freq, now + idx * 0.07);
-
-      gain.gain.setValueAtTime(0.2, now + idx * 0.07);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.07 + 0.18);
-
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-
-      osc.start(now + idx * 0.07);
-      osc.stop(now + idx * 0.07 + 0.18);
-    });
-  },
-
-  playNoSale() {
-    if (!state.audioEnabled) return;
-    this.init();
-    if (!this.ctx) return;
-
-    const now = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(220, now); // A3 down to Eb3
-    osc.frequency.exponentialRampToValueAtTime(155.56, now + 0.22);
-
-    gain.gain.setValueAtTime(0.12, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-
+function playBeep(isSuccess = true) {
+  if (!soundEnabled) return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
-
-    osc.start(now);
-    osc.stop(now + 0.25);
+    gain.connect(audioCtx.destination);
+    osc.type = "sine";
+    osc.frequency.value = isSuccess ? 880 : 300; // High beep for deal, low for no deal
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.15);
+  } catch (e) {
+    console.warn("Audio play blocked or not supported:", e);
   }
-};
-
-// Helper: Normalize Barcode Strings for Matching
-function normalizeCode(raw) {
-  if (typeof raw !== 'string') raw = String(raw || '');
-  return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
-// DOM Elements Initialization
-document.addEventListener('DOMContentLoaded', () => {
-  // Elements
-  const soundToggleBtn = document.getElementById('soundToggleBtn');
-  const uploadBtn = document.getElementById('uploadBtn');
-  const fileInput = document.getElementById('fileInput');
-  const sampleBtn = document.getElementById('sampleBtn');
-  const clearBtn = document.getElementById('clearBtn');
-  const scanBtn = document.getElementById('scanBtn');
-  const manualInput = document.getElementById('manualInput');
-  const manualBtn = document.getElementById('manualBtn');
-  const historyClear = document.getElementById('historyClear');
+// DOM Elements
+const scanBtn = document.getElementById("scanBtn");
+const scannerIdle = document.getElementById("scannerIdle");
+const reticle = document.getElementById("reticle");
+const camControls = document.getElementById("camOverlayControls");
+const liveDot = document.getElementById("liveDot");
+const statusText = document.getElementById("statusText");
+const torchBtn = document.getElementById("torchToggleBtn");
+const flipBtn = document.getElementById("camFlipBtn");
+const soundBtn = document.getElementById("soundToggleBtn");
 
-  // Sound Toggle Event
-  soundToggleBtn.addEventListener('click', () => {
-    state.audioEnabled = !state.audioEnabled;
-    soundToggleBtn.textContent = state.audioEnabled ? '🔊 Audio ON' : '🔇 Audio OFF';
-  });
+// Initialize Camera Controls
+document.addEventListener("DOMContentLoaded", () => {
+  if (typeof Html5Qrcode !== "undefined") {
+    html5QrCode = new Html5Qrcode("reader");
+  } else {
+    alert("Camera library (Html5Qrcode) failed to load. Check your internet connection.");
+  }
 
-  // Sheet Upload Events
-  uploadBtn.addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', handleFileUpload);
-  sampleBtn.addEventListener('click', loadSampleDeals);
-  clearBtn.addEventListener('click', clearSheet);
-
-  // Scanner Event
-  scanBtn.addEventListener('click', toggleScanner);
-
-  // Manual Input Events
-  manualBtn.addEventListener('click', handleManualSubmit);
-  manualInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') handleManualSubmit();
-  });
-
-  // History Clear Event
-  historyClear.addEventListener('click', clearHistory);
-
-  // Load sample dataset by default on startup
-  loadSampleDeals();
+  setupEventListeners();
 });
 
-// File Upload Parsing Logic
-function handleFileUpload(e) {
-  const file = e.target.files[0];
-  if (!file) return;
+function setupEventListeners() {
+  // Start/Stop Camera Button
+  scanBtn.addEventListener("click", toggleScanner);
 
-  const fileName = file.name;
-  const reader = new FileReader();
+  // Flash Toggle
+  torchBtn.addEventListener("click", toggleFlash);
 
-  if (fileName.endsWith('.json')) {
-    reader.onload = (evt) => {
-      try {
-        const parsed = JSON.parse(evt.target.result);
-        processSheetData(parsed, fileName);
-      } catch (err) {
-        alert('Could not parse JSON file. Ensure valid formatting.');
-      }
-    };
-    reader.readAsText(file);
-  } else {
-    reader.onload = (evt) => {
-      try {
-        const data = new Uint8Array(evt.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[firstSheetName];
-        const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-        processSheetData(rows, fileName);
-      } catch (err) {
-        alert('Could not parse spreadsheet file. Upload .xlsx, .xls or .csv.');
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  }
+  // Flip Camera
+  flipBtn.addEventListener("click", switchCamera);
 
-  // Reset file input value
-  e.target.value = '';
-}
-
-// Map Sheet Rows into State Map
-function processSheetData(rows, sheetName) {
-  if (!Array.isArray(rows) || rows.length === 0) {
-    alert('Uploaded sheet is empty or invalid.');
-    return;
-  }
-
-  state.discountDb.clear();
-  let count = 0;
-
-  rows.forEach((row) => {
-    let code = '';
-    let prod = 'Scanned Item';
-    let discount = '';
-
-    // Smart Column Matching
-    Object.keys(row).forEach((k) => {
-      const keyLower = k.toLowerCase().trim();
-      const val = String(row[k]).trim();
-      if (!val) return;
-
-      if (keyLower.includes('bar') || keyLower.includes('code') || keyLower.includes('upc') || keyLower.includes('ean') || keyLower.includes('sku') || keyLower.includes('id')) {
-        if (!code) code = val;
-      } else if (keyLower.includes('disc') || keyLower.includes('sale') || keyLower.includes('off') || keyLower.includes('deal') || keyLower.includes('price')) {
-        if (!discount) discount = val;
-      } else if (keyLower.includes('name') || keyLower.includes('desc') || keyLower.includes('item') || keyLower.includes('prod') || keyLower.includes('title')) {
-        if (prod === 'Scanned Item') prod = val;
-      }
-    });
-
-    // Fallback: If no column headers matched standard naming
-    const values = Object.values(row).map(v => String(v).trim()).filter(Boolean);
-    if (!code && values.length > 0) code = values[0];
-    if (!discount && values.length > 1) discount = values[values.length - 1];
-
-    if (code) {
-      const norm = normalizeCode(code);
-      state.discountDb.set(norm, {
-        originalCode: code,
-        prod: prod,
-        discount: discount || 'On Sale!'
-      });
-      count++;
-    }
+  // Sound Toggle
+  soundBtn.addEventListener("click", () => {
+    soundEnabled = !soundEnabled;
+    soundBtn.textContent = soundEnabled ? "🔊 Audio ON" : "🔇 Audio OFF";
   });
 
-  if (count > 0) {
-    updateSheetUI(sheetName, `${count} items loaded`);
-  } else {
-    alert('No usable barcodes found in file.');
-  }
+  // Manual Lookup
+  document.getElementById("manualBtn").addEventListener("click", handleManualLookup);
+  document.getElementById("manualInput").addEventListener("keypress", (e) => {
+    if (e.key === "Enter") handleManualLookup();
+  });
+
+  // File Upload
+  document.getElementById("uploadBtn").addEventListener("click", () => {
+    document.getElementById("fileInput").click();
+  });
+  document.getElementById("fileInput").addEventListener("change", handleFileUpload);
+
+  // Sample Data Button
+  document.getElementById("sampleBtn").addEventListener("click", loadSampleData);
+
+  // Clear Receipt History
+  document.getElementById("historyClear").addEventListener("click", clearHistory);
 }
 
-// Sample Deals Loader
-function loadSampleDeals() {
-  processSheetData(SAMPLE_DEALS, 'Sample Deals Catalog');
-}
-
-// Clear Loaded Sheet
-function clearSheet() {
-  state.discountDb.clear();
-  updateSheetUI('No sheet loaded', 'Upload .xlsx, .csv or .json');
-  document.getElementById('clearBtn').style.display = 'none';
-}
-
-// Update Sheet Status UI
-function updateSheetUI(title, meta) {
-  document.getElementById('sheetTitle').textContent = title;
-  document.getElementById('sheetMeta').textContent = meta;
-  document.getElementById('clearBtn').style.display = 'inline-block';
-}
-
-// Camera Scanner Management
+// --- Camera Scanner Core Logic ---
 async function toggleScanner() {
-  if (state.isScanning) {
+  if (isScanning) {
     await stopScanner();
   } else {
     await startScanner();
   }
 }
 
-// Fast High-Performance Scanner Config
 async function startScanner() {
-  if (state.isScanning) return;
+  if (!html5QrCode) return;
+
+  const config = {
+    fps: 15,
+    qrbox: { width: 250, height: 180 },
+    aspectRatio: 1.333333
+  };
 
   try {
-    if (!state.html5Qrcode) {
-      state.html5Qrcode = new Html5Qrcode('reader');
-    }
+    scannerIdle.style.display = "none";
+    reticle.style.display = "flex";
+    camControls.style.display = "flex";
 
-    const config = {
-      fps: 30, // Boosted to 30 FPS for fast scanning
-      qrbox: { width: 280, height: 160 },
-      aspectRatio: 1.333333,
-      // Target specific 1D retail barcode formats to reduce processor load
-      formatsToSupport: [
-        Html5QrcodeSupportedFormats.UPC_A,
-        Html5QrcodeSupportedFormats.UPC_E,
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.CODE_39
-      ]
-    };
-
-    await state.html5Qrcode.start(
-      { facingMode: 'environment' },
+    await html5QrCode.start(
+      { facingMode: currentFacingMode },
       config,
       onScanSuccess,
-      onScanFailure
+      onScanError
     );
 
-    state.isScanning = true;
-    updateScannerUI(true);
+    isScanning = true;
+    scanBtn.textContent = "🛑 Stop Camera";
+    scanBtn.style.background = "var(--pink)";
+    liveDot.classList.add("active");
+    statusText.textContent = "LIVE";
+
   } catch (err) {
-    console.error('Camera startup error:', err);
-    alert('Camera access failed. Please ensure camera permissions are granted.');
-    updateScannerUI(false);
+    console.error("Camera Start Error:", err);
+    alert("Could not access camera: " + (err.message || err));
+    resetScannerUI();
   }
 }
 
 async function stopScanner() {
-  if (!state.isScanning || !state.html5Qrcode) return;
+  if (!html5QrCode || !isScanning) return;
 
   try {
-    await state.html5Qrcode.stop();
-    state.isScanning = false;
-    updateScannerUI(false);
+    await html5QrCode.stop();
   } catch (err) {
-    console.error('Camera stop error:', err);
+    console.warn("Camera stop error:", err);
+  } finally {
+    isScanning = false;
+    resetScannerUI();
   }
 }
 
-function updateScannerUI(active) {
-  const liveDot = document.getElementById('liveDot');
-  const statusText = document.getElementById('statusText');
-  const scannerIdle = document.getElementById('scannerIdle');
-  const reticle = document.getElementById('reticle');
-  const scanBtn = document.getElementById('scanBtn');
+function resetScannerUI() {
+  scannerIdle.style.display = "block";
+  reticle.style.display = "none";
+  camControls.style.display = "none";
+  scanBtn.textContent = "📸 Start Scanning!";
+  scanBtn.style.background = "var(--pink)";
+  liveDot.classList.remove("active");
+  statusText.textContent = "Idle";
+  torchOn = false;
+  torchBtn.textContent = "⚡ Flash";
+}
 
-  if (active) {
-    liveDot.classList.add('active');
-    statusText.textContent = 'SCANNING';
-    scannerIdle.style.display = 'none';
-    reticle.style.display = 'flex';
-    scanBtn.textContent = '⏹️ Stop Camera';
-    scanBtn.className = 'btn btn-amber';
+// --- Flash & Flip Functionality ---
+async function toggleFlash() {
+  if (!isScanning) return;
+  try {
+    torchOn = !torchOn;
+    await html5QrCode.applyVideoConstraints({
+      advanced: [{ torch: torchOn }]
+    });
+    torchBtn.textContent = torchOn ? "⚡ Torch ON" : "⚡ Flash";
+  } catch (e) {
+    alert("Flash/Torch is not supported on this camera device.");
+    torchOn = false;
+  }
+}
+
+async function switchCamera() {
+  currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
+  if (isScanning) {
+    await stopScanner();
+    await startScanner();
+  }
+}
+
+// --- Scan Result Handling ---
+function onScanSuccess(decodedText) {
+  playBeep(true);
+  lookupBarcode(decodedText);
+
+  // Trigger Confetti if deal found
+  if (window.confetti && discountData[decodedText]) {
+    confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 } });
+  }
+}
+
+function onScanError(errorMessage) {
+  // Silent fail during frame scanning
+}
+
+function handleManualLookup() {
+  const input = document.getElementById("manualInput");
+  const code = input.value.trim();
+  if (code) {
+    lookupBarcode(code);
+    input.value = "";
+  }
+}
+
+function lookupBarcode(code) {
+  const stampEmpty = document.getElementById("stampEmpty");
+  const stampResult = document.getElementById("stampResult");
+  const stampMark = document.getElementById("stampMark");
+  const stampCode = document.getElementById("stampCode");
+  const stampProd = document.getElementById("stampProd");
+
+  const deal = discountData[code];
+
+  stampEmpty.style.display = "none";
+  stampResult.style.display = "flex";
+  stampCode.textContent = code;
+
+  if (deal) {
+    stampMark.textContent = `🎉 ${deal.discount || "ON SALE!"}`;
+    stampMark.className = "stamp-mark sale";
+    stampProd.textContent = deal.title || "Discounted Item";
+    addToReceipt(code, deal.title || "Discounted Item", deal.discount || "SALE", true);
   } else {
-    liveDot.classList.remove('active');
+    stampMark.textContent = "😅 FULL PRICE";
+    stampMark.className = "stamp-mark nosale";
+    stampProd.textContent = "No discount found on sheet";
+    addToReceipt(code, "Regular Item", "No Deal", false);
+  }
+}
+
+// --- Sheet Parsing & Receipt Helpers ---
+function handleFileUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(evt) {
+    try {
+      const data = new Uint8Array(evt.target.result);
+      const workbook = XLSX.read(data, { type: "array" });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+
+      discountData = {};
+      rows.forEach(row => {
+        if (row[0]) {
+          discountData[String(row[0]).trim()] = {
+            title: row[1] || "Item",
+            discount: row[2] || "Discounted"
+          };
+        }
+      });
+
+      document.getElementById("sheetTitle").textContent = file.name;
+      document.getElementById("sheetMeta").textContent = `${Object.keys(discountData).length} items loaded`;
+      document.getElementById("clearBtn").style.display = "inline-block";
+    } catch (err) {
+      alert("Error parsing file. Please ensure it is a valid CSV or XLSX.");
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function loadSampleData() {
+  discountData = {
+    "123456789": { title: "Wireless Headphones", discount: "40% OFF" },
+    "987654321": { title: "Organic Coffee Beans", discount: "BUY 1 GET 1" },
+    "051111400013": { title: "Sticky Notes 12-Pack", discount: "$5.00 OFF" }
+  };
+  document.getElementById("sheetTitle").textContent = "Sample Deals Loaded";
+  document.getElementById("sheetMeta").textContent = "3 demo barcodes ready";
+}
+
+function addToReceipt(code, title, tag, isSale) {
+  const receipt = document.getElementById("receipt");
+  const emptyMsg = document.getElementById("receiptEmpty");
+  if (emptyMsg) emptyMsg.style.display = "none";
+
+  const item = document.createElement("div");
+  item.className = "receipt-item";
+  item.innerHTML = `
+    <div class="info">
+      <span class="title">${title}</span>
+      <span class="code">${code}</span>
+    </div>
+    <span class="receipt-tag ${isSale ? 'sale' : 'nosale'}">${tag}</span>
+  `;
+  receipt.prepend(item);
+}
+
+function clearHistory() {
+  const receipt = document.getElementById("receipt");
+  receipt.innerHTML = `<div class="receipt-empty" id="receiptEmpty">Nothing scanned yet — go find a bargain!</div>`;
+}
+.classList.remove('active');
     statusText.textContent = 'Idle';
     scannerIdle.style.display = 'block';
     reticle.style.display = 'none';
