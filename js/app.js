@@ -7,42 +7,55 @@ let soundEnabled = true;
 let discountData = {}; // Stores barcode -> product deal object
 
 // Audio context for sound effects
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let audioCtx = null;
+
+function getAudioContext() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === "suspended") {
+    audioCtx.resume();
+  }
+  return audioCtx;
+}
 
 function playBeep(isSuccess = true) {
   if (!soundEnabled) return;
   try {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
+    const ctx = getAudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
     osc.connect(gain);
-    gain.connect(audioCtx.destination);
+    gain.connect(ctx.destination);
     osc.type = "sine";
     osc.frequency.value = isSuccess ? 880 : 300; // High beep for deal, low for no deal
-    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
     osc.start();
-    osc.stop(audioCtx.currentTime + 0.15);
+    osc.stop(ctx.currentTime + 0.15);
   } catch (e) {
     console.warn("Audio play blocked or not supported:", e);
   }
 }
 
 // DOM Elements
-const scanBtn = document.getElementById("scanBtn");
-const scannerIdle = document.getElementById("scannerIdle");
-const reticle = document.getElementById("reticle");
-const camControls = document.getElementById("camOverlayControls");
-const liveDot = document.getElementById("liveDot");
-const statusText = document.getElementById("statusText");
-const torchBtn = document.getElementById("torchToggleBtn");
-const flipBtn = document.getElementById("camFlipBtn");
-const soundBtn = document.getElementById("soundToggleBtn");
+let scanBtn, scannerIdle, reticle, camControls, liveDot, statusText, torchBtn, flipBtn, soundBtn;
 
-// Initialize Camera Controls
+// Initialize App
 document.addEventListener("DOMContentLoaded", () => {
+  scanBtn = document.getElementById("scanBtn");
+  scannerIdle = document.getElementById("scannerIdle");
+  reticle = document.getElementById("reticle");
+  camControls = document.getElementById("camOverlayControls");
+  liveDot = document.getElementById("liveDot");
+  statusText = document.getElementById("statusText");
+  torchBtn = document.getElementById("torchToggleBtn");
+  flipBtn = document.getElementById("camFlipBtn");
+  soundBtn = document.getElementById("soundToggleBtn");
+
   if (typeof Html5Qrcode !== "undefined") {
     html5QrCode = new Html5Qrcode("reader");
   } else {
-    alert("Camera library (Html5Qrcode) failed to load. Check your internet connection.");
+    alert("Camera library (Html5Qrcode) failed to load. Check internet connection.");
   }
 
   setupEventListeners();
@@ -81,6 +94,9 @@ function setupEventListeners() {
 
   // Clear Receipt History
   document.getElementById("historyClear").addEventListener("click", clearHistory);
+
+  // Clear sheet button
+  document.getElementById("clearBtn").addEventListener("click", clearSheetData);
 }
 
 // --- Camera Scanner Core Logic ---
@@ -121,7 +137,7 @@ async function startScanner() {
 
   } catch (err) {
     console.error("Camera Start Error:", err);
-    alert("Could not access camera: " + (err.message || err));
+    alert("Could not access camera: " + (err.message || err) + "\n\nNote: Browsers block camera access over insecure (http://) connections.");
     resetScannerUI();
   }
 }
@@ -224,7 +240,7 @@ function lookupBarcode(code) {
   }
 }
 
-// --- Sheet Parsing & Receipt Helpers ---
+// --- Sheet Parsing & Helpers ---
 function handleFileUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -251,7 +267,7 @@ function handleFileUpload(e) {
       document.getElementById("sheetMeta").textContent = `${Object.keys(discountData).length} items loaded`;
       document.getElementById("clearBtn").style.display = "inline-block";
     } catch (err) {
-      alert("Error parsing file. Please ensure it is a valid CSV or XLSX.");
+      alert("Error parsing file. Please ensure it is a valid CSV or XLSX file.");
     }
   };
   reader.readAsArrayBuffer(file);
@@ -265,6 +281,14 @@ function loadSampleData() {
   };
   document.getElementById("sheetTitle").textContent = "Sample Deals Loaded";
   document.getElementById("sheetMeta").textContent = "3 demo barcodes ready";
+  document.getElementById("clearBtn").style.display = "inline-block";
+}
+
+function clearSheetData() {
+  discountData = {};
+  document.getElementById("sheetTitle").textContent = "No sheet loaded";
+  document.getElementById("sheetMeta").textContent = "Upload .xlsx, .csv or .json";
+  document.getElementById("clearBtn").style.display = "none";
 }
 
 function addToReceipt(code, title, tag, isSale) {
@@ -288,55 +312,7 @@ function clearHistory() {
   const receipt = document.getElementById("receipt");
   receipt.innerHTML = `<div class="receipt-empty" id="receiptEmpty">Nothing scanned yet — go find a bargain!</div>`;
 }
-.classList.remove('active');
-    statusText.textContent = 'Idle';
-    scannerIdle.style.display = 'block';
-    reticle.style.display = 'none';
-    scanBtn.textContent = '📸 Start Scanning!';
-    scanBtn.className = 'btn btn-pink';
-  }
-}
-
-// Scanner Callback Handlers
-function onScanSuccess(decodedText) {
-  lookupBarcode(decodedText);
-}
-
-function onScanFailure(error) {
-  // Continuous scanning frame failures are ignored to avoid console noise
-}
-
-// Manual Entry Handler
-function handleManualSubmit() {
-  const input = document.getElementById('manualInput');
-  const code = input.value.trim();
-  if (!code) return;
-
-  lookupBarcode(code);
-  input.value = '';
-}
-
-// Core Lookup Engine
-function lookupBarcode(rawCode) {
-  const now = Date.now();
-  const norm = normalizeCode(rawCode);
-
-  // Reduced cooldown debounce from 2200ms to 800ms for faster multi-item scans
-  if (state.lastScannedCode === norm && (now - state.lastScanTime) < 800) {
-    return;
-  }
-
-  state.lastScannedCode = norm;
-  state.lastScanTime = now;
-
-  const hit = state.discountDb.get(norm);
-
-  if (hit) {
-    // Discount Found
-    renderStampResult(true, hit.discount, rawCode, hit.prod);
-    AudioEngine.playSale();
-    triggerConfetti();
-    addHistoryItem(rawCode, hit.prod, hit.discount, true);
+dHistoryItem(rawCode, hit.prod, hit.discount, true);
   } else {
     // Not on discount
     renderStampResult(false, 'NO DISCOUNT', rawCode, 'Regular Price Item');
