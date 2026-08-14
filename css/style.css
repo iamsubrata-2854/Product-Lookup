@@ -567,3 +567,58 @@ footer {
   line-height: 1.4;
   padding: 6px;
 }
+ipt-empty {
+  font-size: 12px;
+  font-weight: 700;
+  color: #888;
+  text-align: center;
+  padding: 10px;
+}
+
+.receipt-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #F8F9FA;
+  border: 2px solid var(--border-color);
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.receipt-item .info {
+  display: flex;
+  flex-direction: column;
+}
+
+.receipt-item .code {
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  color: #666;
+}
+
+.receipt-item .title {
+  font-weight: 800;
+}
+
+.receipt-tag {
+  font-family: 'Fredoka', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-color);
+}
+
+.receipt-tag.sale { background: var(--cyan); color: var(--dark-text); }
+.receipt-tag.nosale { background: #E0E0E0; color: #555; }
+
+/* Footer */
+footer {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: #444;
+  line-height: 1.4;
+  padding: 6px;
+}
