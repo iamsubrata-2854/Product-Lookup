@@ -44,29 +44,48 @@
     </div>
   </div>
 
-  <!-- Camera Scanner Card -->
+  <!-- Redesigned Camera Scanner Card -->
   <div class="card">
     <div class="card-label">
-      <span>📷 Camera Scanner</span>
+      <span>📷 Pro Camera Scanner</span>
       <span class="status-line">
         <span class="dot" id="liveDot"></span>
         <span id="statusText">Idle</span>
       </span>
     </div>
-    <div class="scanner-frame">
+
+    <!-- Viewfinder Screen Container -->
+    <div class="scanner-frame" id="scannerFrame">
       <div id="reader"></div>
+
+      <!-- Idle Overlay -->
       <div class="scanner-idle" id="scannerIdle">
-        <div class="emoji">🕹️</div>
-        <p>Camera is paused.<br>Tap <b style="color:var(--yellow)">Start Scanning</b> below!</p>
+        <div class="viewfinder-icon">📷</div>
+        <p>Camera offline<br>Tap <b style="color:var(--yellow)">Start Scanning</b> below to open lens</p>
       </div>
+
+      <!-- Live Camera Controls Overlay -->
+      <div class="cam-overlay-controls" id="camOverlayControls" style="display:none;">
+        <span class="hd-badge">720p HD</span>
+        <div class="cam-tools">
+          <button class="cam-tool-btn" id="torchToggleBtn" type="button" title="Toggle Flash">⚡ Flash</button>
+          <button class="cam-tool-btn" id="camFlipBtn" type="button" title="Flip Camera">🔄 Switch</button>
+        </div>
+      </div>
+
+      <!-- Target Reticle & Dim Mask -->
       <div class="reticle" id="reticle" style="display:none;">
+        <div class="reticle-mask"></div>
         <div class="reticle-box">
           <div class="corner tl"></div><div class="corner tr"></div>
           <div class="corner bl"></div><div class="corner br"></div>
           <div class="scanline"></div>
+          <div class="reticle-guide">Align barcode inside frame</div>
         </div>
       </div>
     </div>
+
+    <!-- Scanner Trigger -->
     <div class="scan-controls">
       <button class="btn btn-pink" id="scanBtn" type="button" style="width:100%;">📸 Start Scanning!</button>
     </div>
@@ -112,7 +131,7 @@
 
 </div>
 
-<!-- Third-Party Libraries (Loaded before app logic) -->
+<!-- Third-Party Libraries -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
